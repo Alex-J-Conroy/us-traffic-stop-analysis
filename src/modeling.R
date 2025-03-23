@@ -1,0 +1,173 @@
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggstatsplot)
+library(tidyverse)
+library(MASS)
+library(ggpubr)
+library(DHARMa)
+library(AER)
+library(GGally)
+library(kableExtra)
+library(stringi)
+library(pROC)
+library(Hmisc)
+library(foreign)
+library(nnet)
+library(stargazer)
+#install.packages("caret")
+library(caret)
+
+## Initial data preparation that occured in python before the decision to switch to R
+## mostly just handling of the variables not apart of the main focus into more managable formats
+
+#df_h['date'].replace('', np.nan, inplace=True)
+#df_h['outcome'].replace('', np.nan, inplace=True)
+#df_h.dropna(subset=['date'], inplace=True) # only 1 data point, so removed
+#df_h.dropna(subset=['subject_sex'], inplace=True) # Nashville only
+#df_h.dropna(subset=['time'], inplace=True) # Nashville only
+#df_h.dropna(subset=['zcta_race'], inplace=True) # Nashville only
+#df_h.dropna(subset=['subject_race'], inplace=True) # Nashville only
+#df_h.dropna(subset=['subject_age'], inplace=True) # Nashville only
+#df_h['outcome'].fillna("no_outcome", inplace = True) # define blanks as no action taken by officers
+#df_h.isnull().sum(axis=0) # null report, as expected
+#df_h.time = pd.to_datetime(df_h.time)
+#df_h = df_h.assign(time_levels=pd.cut(df_h.time.dt.hour,[0,6,12,18,24],labels=['Night','Morning','Afternoon','Evening']))
+#df_h = df_h.assign(subject_age_levels=pd.cut(df_h.subject_age,[0,17,39,59,60],labels=['0-17','18-30','40-50','60+'])
+#df_h = df_h.drop(['time', 'subject_age'], axis=1)
+
+## Loading Data
+train <- read.csv("Nash_export1.csv")
+test <- read.csv("Hart_export1.csv")
+data <- rbind(train,test)
+
+data <- within(data, {
+
+  date <- factor(date)
+  zcta_race<-factor(zcta_race)
+  subject_race<-factor(subject_race)
+  subject_sex<-factor(subject_sex)
+  outcome<-factor(outcome)
+  contraband_found<-factor(contraband_found)
+  search_conducted<-factor(search_conducted)
+  search_basis<-factor(search_basis)
+  reason_for_stop<-factor(reason_for_stop)
+  search_conducted<-factor(search_conducted)
+  time_levels<-factor(time_levels)
+  subject_age_levels<-factor(subject_age_levels)
+})
+
+data1 <-data[ ,sapply(data, is.numeric)]
+
+ggplot(data, aes(x = outcome, y = subject_race)) +
+  stat_sum(aes(size = ..n.., group = 1)) +
+  scale_size_area(max_size=10) +
+  labs(title="Driver Race v Outcome Exploration")
+
+##
+ggplot(data, aes(x = outcome, y = subject_sex)) +
+  stat_sum(aes(size = ..n.., group = 1)) +
+  scale_size_area(max_size=10) +
+  labs(title="Driver Sex v Outcome Exploration")
+
+# due to inconsistencies in reporting styles between cities some of the exploration is only possible on individual cities
+# were applicable these are provided seperately
+#ggpairs(data)+
+ # labs(title="Correlation Matrix of Variables")
+
+#  test train data split
+library(ISLR)
+smp_siz = floor(0.8*nrow(data))
+set.seed(100)
+train_ind = sample(seq_len(nrow(data)),size = smp_siz)
+train =data[train_ind,]
+test=data[-train_ind,]
+
+## full model selection
+
+multi1 = multinom(outcome~date + subject_race + subject_sex + contraband_found + search_conducted + search_basis + reason_for_stop + time_levels + subject_age_levels,data=train)
+
+multi1
+
+## model summary
+mlogit_output <- summary(multi1)
+mlogit_output
+
+# coefficients, standard errors, z stat and p value for all levels in the model
+mlogit_output$coefficients
+mlogit_output$standard.errors
+z <- mlogit_output$coefficients/mlogit_output$standard.errors
+p <- (1-pnorm(abs(z),0,1))*2 # I am using two-tailed z test
+Pquality5 <- rbind(mlogit_output$coefficients[2, ],mlogit_output$standard.errors[2, ],z[2, ],p[2, ])
+rownames(Pquality5) <- c("Coefficient","Std. Errors","z stat","p value")
+knitr::kable(Pquality5)
+
+# model fit checks
+oddsML <- exp(coef(mlogit_output))
+predictedML <- predict(multi1,test,na.action =na.pass, type="probs")
+predicted_classML <- predict(multi1,test)
+
+
+caret::confusionMatrix(as.factor(predicted_classML),as.factor(test$outcome))
+
+# model fit statistic
+mean(as.character(predicted_classML) != as.character(test$outcome))
+
+# analysis of the model to determine the most important variables
+mostImportantVariables <- varImp(multi1)
+mostImportantVariables$Variables <- row.names(mostImportantVariables)
+mostImportantVariables <- mostImportantVariables[order(-mostImportantVariables$Overall),]
+print(head(mostImportantVariables))
+
+# building the lean model using only the important variables above (train)
+multi1_lean <- multinom(outcome ~ reason_for_stop + contraband_found + search_basis ,data = train, maxit = 1000)
+multi1_lean1 <- summary(multi1_lean)
+multi1_lean1
+
+# lean model coefficients, errors, z and p values (train)
+multi1_lean1$coefficients
+multi1_lean1$standard.errors
+z <- multi1_lean1$coefficients/multi1_lean1$standard.errors
+p <- (1-pnorm(abs(z),0,1))*2 # I am using two-tailed z test
+Pquality5 <- rbind(multi1_lean1$coefficients[2, ],multi1_lean1$standard.errors[2, ],z[2, ],p[2, ])
+rownames(Pquality5) <- c("Coefficient","Std. Errors","z stat","p value")
+knitr::kable(Pquality5)
+
+#lean model output and fit statistics (train)
+exp(coef(multi1_lean1))
+multi1_lean1$coefficients
+library(pscl)
+mlogit_ModelFit<- rbind(pscl::pR2(multi1_lean)[1:6],pscl::pR2(multi1_lean)[1:6])
+
+rownames(mlogit_ModelFit) <- c("Model-0", "Model-1")
+print(mlogit_ModelFit, digits = 2)
+
+# lean model checks (train)
+mlogit_ModelError <- as.data.frame(rbind(cbind(multi1$deviance,multi1$AIC)),cbind(multi1_lean$deviance,multi1_lean$AIC))
+
+names(mlogit_ModelError) <- c("Deviance", "AIC")
+print(mlogit_ModelError, digits = 3)
+
+#lean model checks (train)
+predictedML1 <- predict(multi1_lean,train,na.action =na.pass, type="probs")
+predicted_classML1 <- predict(multi1_lean,train)
+
+
+caret::confusionMatrix(as.factor(predicted_classML1),as.factor(train$outcome))
+
+# lean model check statistic
+mean(as.character(predicted_classML1) != as.character(train$outcome))
+
+#model fit tests (test)
+predictedML1 <- predict(multi1_lean,test,na.action =na.pass, type="probs")
+predicted_classML1 <- predict(multi1_lean,test)
+caret::confusionMatrix(as.factor(predicted_classML1),as.factor(test$outcome))
+
+# lean model fit statistic (test)
+mean(as.character(predicted_classML1) != as.character(test$outcome))
+
+library(broom)
+ref <- tidy(multi1_lean)
+ref <- ref[2:length(ref$term),]
+
+ref1 <- subset(ref,ref$estimate<=0)
+ref2 <- subset(ref,ref$estimate>0)
