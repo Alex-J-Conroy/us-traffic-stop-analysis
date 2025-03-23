@@ -60,6 +60,17 @@ This reframes the problem from stop bias to **decision-making sensitivity**, hel
 
 ---
 
+## 🛠 Technology Choices
+
+This project uses both **Python and R**, with each language selected based on its strengths:
+
+- 🔍 **R** was chosen for modeling due to the availability of the `nnet::multinom()` function for multinomial logistic regression and its strength in explainable statistical modeling.
+- 🌐 **Python** was used for reverse geocoding via the Google Maps API, as well as for ZIP/ZCTA preprocessing and dataset merging.
+
+This hybrid approach reflects real-world, tool-agnostic decision making in applied data science projects.
+
+---
+
 ## 🔎 Project Structure
 racial-bias-traffic-stops/ ├── data/ │ ├── sop_subset.csv # Subsampled SOP stop data │ └── census_zcta_mapping.csv # ZIP-to-ZCTA crosswalks │ ├── notebooks/ │ ├── zcta_cluster_analysis.ipynb # Geospatial and census merging (Python) │ ├── reverse_geo_code.ipynb # Google Maps geocoder (Python) │ ├── analysis/ │ └── SOPModel_all_test.Rmd # Multinomial regression modeling (R) │ ├── report/ │ ├── Report DRAFT.pdf # Draft dissertation write-up │ ├── IFN704_Project_Proposal.pdf # Initial research proposal │ └── IFN704_Alex_Conroy_Presentation.pdf # Final presentation slides │ ├── research.txt # Raw notes and research log ├── README.md
 
